@@ -52,7 +52,7 @@ The following instructions must be run with root privileges.
 ### RHEL7 ###
 
 1. Copy ``mod_paa.so`` to ``/etc/httpd/modules``
-2. Copy ``paa.conf`` to ``/etc/httpd/conf.modules.d/10-paa.conf
+2. Copy ``paa.conf`` to ``/etc/httpd/conf.modules.d/10-paa.conf``
 3. Restart Apache
 
 After deploying the agent, obtain an agent.properties from the PingAccess Admin
