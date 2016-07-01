@@ -8,6 +8,20 @@ Agent Protocol.
 - Red Hat Enterprise Linux 6 (RHEL6), 64-bit
 - Red Hat Enterprise Linux 7 (RHEL7), 64-bit
 
+## Runtime Dependencies ##
+
+The following are required to build an run this sample agent:
+
+1. PingAccess Agent SDK for C
+2. PingAccess 4.0.3 or later and a valid license
+3. PingFederate 7.1.x or 8.0.x or later and a valid license
+4. Properly configured Apache HTTP server instance in which to install the agent module
+
+## Installing the PingAccess Agent SDK for C ##
+
+1. Download from x
+2. Unzip in desired install location
+
 ## Installing Build Dependencies ##
 
 The sample requires the installation of some build-time dependencies. Some 
@@ -29,10 +43,12 @@ For RHEL7, run the following yum command as root to install the provided depende
 ## Building ##
 
 The sample Apache agent module can be built using the provided GNU Make
-Makefile. To build the module, run the ``make`` command in the sample directory.
+Makefile. Either modify the Make file to set the variable PAA_SDK_INSTALL_DIR to the base of the
+the unzipped C SDK distribution installed earlier, or specify it on the command line. For example:
 
-The build process creates ``mod_paa.so``, as well as other intermediate
-artifacts.
+    make PAA_SDK_INSTALL_DIR=/usr/local/pingaccess-agent-c-sdk
+
+The build process creates ``mod_paa.so``, as well as other intermediate artifacts.
 
 ## Deploying ##
 
