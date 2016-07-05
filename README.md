@@ -1,7 +1,7 @@
-# PingAccess Agent SDK Sample #
+# PingAccess Agent SDK for C Sample #
 
 This directory contains a sample Apache agent that implements the PingAccess
-Agent Protocol.
+Agent Protocol using the Agent SDK for C.
 
 ## Supported Platforms ##
 
@@ -10,7 +10,7 @@ Agent Protocol.
 
 ## Runtime Dependencies ##
 
-The following are required to build an run this sample agent:
+The following are required to build and run this sample agent:
 
 1. [PingAccess 4.0.3 or later](https://www.pingidentity.com/en/products/downloads/pingaccess.html)
 and a [valid license](https://developer.pingidentity.com/en/connect.html)
@@ -22,12 +22,13 @@ and a [valid license](https://developer.pingidentity.com/en/connect.html)
 
 1. Download [PingAccess Agent SDK for C](https://www.pingidentity.com/en/products/downloads/pingaccess.html)
 2. Unzip in desired install location
+3. Within the remainder of this document, the base of the unzipped contents is known as ``PAA_SDK_INSTALL_DIR``
 
 ## Installing Build Dependencies ##
 
 The sample requires the installation of some build-time dependencies. Some 
 dependencies are available from the RHEL repositories, but a few are shipped
-in lib/${platform}/dependencies.
+in ${PAA_SDK_INSTALL_DIR}/lib/${platform}/dependencies directory of the Agent SDK for C installation.
 
 Run the following yum command as root to install all the dependencies:
 
@@ -35,13 +36,13 @@ Run the following yum command as root to install all the dependencies:
 
 For RHEL6, run the following yum command as root to install the provided dependencies:
 
-    yum install ../lib/rhel6/x86_64/dependencies/*.rpm
+    yum install ${PAA_SDK_INSTALL_DIR}/lib/rhel6/x86_64/dependencies/*.rpm
 
 For RHEL7, run the following yum command as root to install the provided dependencies:
 
-    yum install ../lib/rhel7/x86_64/dependencies/*.rpm
+    yum install ${PAA_SDK_INSTALL_DIR}/lib/rhel7/x86_64/dependencies/*.rpm
 
-## Building ##
+## Building the Apache Agent Sample ##
 
 The sample Apache agent module can be built using the provided GNU Make
 Makefile. Either modify the Make file to set the variable PAA_SDK_INSTALL_DIR to the base of the
@@ -72,7 +73,7 @@ The following instructions must be run with root privileges.
 2. Copy ``paa.conf`` to ``/etc/httpd/conf.modules.d/10-paa.conf``
 3. Restart Apache
 
-After deploying the agent, obtain an agent.properties from the PingAccess Admin
+After deploying the agent, obtain an ``agent.properties`` from the PingAccess Admin
 Console to configure the agent with the details necessary to contact the
 PingAccess Policy Server.
 
