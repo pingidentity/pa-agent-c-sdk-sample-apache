@@ -45,8 +45,8 @@ For RHEL7, run the following yum command as root to install the provided depende
 ## Building the Apache Agent Sample ##
 
 The sample Apache agent module can be built using the provided GNU Make
-Makefile. Either modify the Make file to set the variable PAA_SDK_INSTALL_DIR to the base of the
-the unzipped C SDK distribution installed earlier, or specify it on the command line. For example:
+Makefile. The base of the unzipped C SDK distribution installed earlier must be specified on the command line.
+For example:
 
     make PAA_SDK_INSTALL_DIR=/usr/local/pingaccess-agent-c-sdk
 
@@ -79,17 +79,15 @@ PingAccess Policy Server.
 
 ## Support ##
 
-- The most recent version of this sample application and project may be found at [github](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache).
-- Navigate to the [wiki page at github](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache/wiki) for Frequently Asked Questions
-- Any other questions/issues can be sent to the [github issues tracker](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache/issues) or discussed on the [Ping Identity developer communities](https://community.pingidentity.com/collaborate)
-- Customers and Partners may create cases via the [Ping Identity Support and Community Portal](https://ping.force.com/Support/Case_Create_Public).
 - The latest version of the PingAccess Agent SDK for C can be downloaded [here](https://www.pingidentity.com/en/products/downloads/pingaccess.html) (login required).
-- API Documentation for the PingAccess Agent SDK for C is hosted at the [Ping Identity Developer Portal](https://developer.pingidentity.com/content/dam/developer/documentation/pingaccess/agent-c-sdk/1.0.1/index.html)
-- Additional Documentation for PingAccess Agent SDK for C can be found in the [Knowledge Center](https://documentation.pingidentity.com/pingaccess/pa40/index.shtml#pa_c_Agent_SDK_Preface.html)
-- For developers using Java technologies, there is also a PingAccess Agent Sample application for Java, also hosted at github (link needs to be updated)
-- If you require integration with PingAccess via a different technology, or if you wish to integrate directly with PingAccess via REST, we have published the protocol interaction with the engine as the PingAccess Agent Protocol specification (TBP), which is hosted at the Ping Identity Developer Portal (login required).
+- The most recent version of this sample application and project may be found at [github](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache).
+- Customers and Partners may create cases via the [Ping Identity Support and Community Portal](https://ping.force.com/Support/Case_Create_Public).
+- API Documentation for the PingAccess Agent SDK for C is hosted at the [Ping Identity Developer Portal](https://developer.pingidentity.com/content/dam/developer/documentation/pingaccess/agent-c-sdk/latest/index.html)
+- Additional Documentation for PingAccess Agent SDK for C can be found in the [Knowledge Center](https://docs.pingidentity.com/bundle/pa_sm_agentSDKC)
+- For developers using Java technologies, there is also a PingAccess Agent Sample application for Java, also hosted at github (link TBD)
+- If you require integration with PingAccess via a different technology, we have published the protocol interaction with the engine as the PingAccess Agent Protocol specification (TBP), which is hosted at the Ping Identity Developer Portal (login required).
 
 ## Disclaimer ##
 This software is open sourced by Ping Identity but not supported commercially as such. Any questions/issues
-should go to the [github issues tracker](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache/issues) or be brought up
-for discussion on the [Ping Identity developer communities](https://community.pingidentity.com/collaborate). See also the DISCLAIMER file in this directory.
+should be brought up for discussion on the [Ping Identity developer communities](https://community.pingidentity.com/collaborate).
+See also the DISCLAIMER file in this directory.
