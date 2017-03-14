@@ -72,7 +72,7 @@ static
 const char * const APACHE_TEST_CONNECTION = "agent.apache.test.connection";
 
 static
-const char * const APACHE_PAA_VERSION = "1.2.0";
+const char * const APACHE_PAA_VERSION = "1.3.0";
 
 // Globals
 module paa_module;
@@ -112,6 +112,7 @@ struct paa_server_config_struct {
     apr_array_header_t *properties_files;
     const char *cert_dir;
     const char *cert_path;
+    int paa_enabled;
     const paa_config *config;
     const paa_http_client *http_client;
 } paa_server_config;
@@ -178,6 +179,7 @@ int paa_header_parser(request_rec *r)
     apache_client_resp_init(&client_resp, &resp_wrapper);
 
     int hook_result;
+
     do {
         apr_status_t result;
 
@@ -186,6 +188,12 @@ int paa_header_parser(request_rec *r)
         if (server_config == NULL) {
             paa_log(r->pool, APACHE_MSGID, PAA_ERROR, "failed to obtain PAA server configuration");
             hook_result = HTTP_INTERNAL_SERVER_ERROR;
+            break;
+        }
+
+        if(!server_config->paa_enabled){
+        	paa_log(r->pool, APACHE_MSGID, PAA_DEBUG, "agent not enabled.");
+        	hook_result = OK;
             break;
         }
 
@@ -405,7 +413,8 @@ void noop_threadkey_free(void *unused)
 
 void paa_child_init(apr_pool_t *pool, server_rec *s)
 {
-    set_global_log_handle(pool, s);
+
+	set_global_log_handle(pool, s);
 
     apr_status_t result;
     do {
@@ -416,7 +425,7 @@ void paa_child_init(apr_pool_t *pool, server_rec *s)
             break;
         }
 
-        paa_server_config *server_config = 
+        paa_server_config *server_config =
             (paa_server_config *)ap_get_module_config(s->module_config, &paa_module);
         if (server_config == NULL) {
             paa_log(pool, APACHE_MSGID, PAA_ERROR, "failed to obtain PAA server configuration");
@@ -447,12 +456,35 @@ void paa_child_init(apr_pool_t *pool, server_rec *s)
             break;
         }
 
+        // copy all global config to each virtual host
+        server_rec *virt = s->next;
+        while (virt != NULL)
+        {
+            paa_server_config *virt_config =
+                (paa_server_config *)ap_get_module_config(virt->module_config, &paa_module);
+
+            // Only update the virtual host config if it differs from main server config
+            if (virt_config != server_config)
+            {
+                virt_config->http_client = server_config->http_client;
+                virt_config->properties_files = server_config->properties_files;
+                virt_config->cert_dir = server_config->cert_dir;
+                virt_config->cert_path = server_config->cert_path;
+                virt_config->config = server_config->config;
+                // Don't set paa_enabled, this is a per-virtual host setting
+            }
+
+            virt = virt->next;
+
+        }
+
         result = APR_SUCCESS;
     }while(0);
 
     if (result != APR_SUCCESS) {
         cache = NULL;
     }
+
 }
 
 static
@@ -583,17 +615,17 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
     paa_server_config *server_config =
         (paa_server_config *)ap_get_module_config(s->module_config, &paa_module);
     if (server_config == NULL) {
-        paa_log(ptemp, APACHE_MSGID, PAA_ERROR, "failed to retrieve PAA server config");
+        paa_log(pool, APACHE_MSGID, PAA_ERROR, "failed to retrieve PAA server config");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
     if (server_config->properties_files->nelts <= 0) {
-        paa_log(ptemp, APACHE_MSGID, PAA_ERROR, "PAA properties files were not specified");
+        paa_log(pool, APACHE_MSGID, PAA_ERROR, "PAA properties files were not specified");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
     if (server_config->cert_dir == NULL) {
-        paa_log(ptemp, APACHE_MSGID, PAA_ERROR,
+        paa_log(pool, APACHE_MSGID, PAA_ERROR,
                 "Directory for PAA trust certificates was not specified");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -612,7 +644,7 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
             &errmsg,
             &(server_config->config));
     if (result != APR_SUCCESS) {
-        paa_log_error(ptemp, APACHE_MSGID, PAA_ERROR, result,
+        paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
                 "failed to initialize PAA configuration: %s",
                 errmsg);
         return HTTP_INTERNAL_SERVER_ERROR;
@@ -622,6 +654,7 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
             server_config->config,
             server_config->cert_dir,
             &(server_config->cert_path));
+
     if (result != APR_SUCCESS && !APR_STATUS_IS_EEXIST(result)) {
         paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
                 "failed to create trust store certificate file");
@@ -699,6 +732,7 @@ void paa_register_hooks(apr_pool_t *p)
             NULL, AP_FTYPE_CONTENT_SET);
 
     // Register hooks
+    //ap_hook_header_parser
     ap_hook_header_parser(paa_header_parser, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_insert_filter(paa_insert_filters, NULL, NULL, APR_HOOK_LAST);
     ap_hook_insert_error_filter(paa_insert_error_filters, NULL, NULL, APR_HOOK_LAST);
@@ -713,6 +747,7 @@ void *paa_create_server_config(apr_pool_t *pool, server_rec *s)
 
     paa_server_config *server_config = apr_pcalloc(pool, sizeof(paa_server_config));
     server_config->cert_dir = NULL;
+    server_config->paa_enabled = -1;
     server_config->config = NULL;
     server_config->properties_files = apr_array_make(pool, 3, sizeof(char *));
 
@@ -722,16 +757,19 @@ void *paa_create_server_config(apr_pool_t *pool, server_rec *s)
 static
 void *paa_merge_server_config(apr_pool_t *p, void *base_conf, void *new_conf)
 {
-    paa_server_config *base_server_config = (paa_server_config *)base_conf;
+
+	paa_server_config *base_server_config = (paa_server_config *)base_conf;
     paa_server_config *new_server_config = (paa_server_config *)new_conf;
     paa_server_config *server_config = apr_palloc(p, sizeof(paa_server_config));
 
-    server_config->properties_files = 
-        apr_array_append(p,
-                base_server_config->properties_files,
-                new_server_config->properties_files);
+	if(new_server_config->paa_enabled == -1){
+	    server_config->paa_enabled = base_server_config->paa_enabled;
+	}
+	else {
+		server_config->paa_enabled = new_server_config->paa_enabled;
+	}
 
-    return server_config;
+	return server_config;
 }
 
 static
@@ -777,11 +815,34 @@ const char *set_cert_dir(cmd_parms *parms, void *unused, const char *arg)
 }
 
 static
+const char *set_paa_enabled(cmd_parms *parms, void *unused, const char *arg)
+{
+    USE(unused);
+
+    server_rec *s = parms->server;
+    paa_server_config *server_config = ap_get_module_config(s->module_config, &paa_module);
+
+    if(strncmp(arg, "off", 3)==0){
+    	server_config->paa_enabled = 0;
+    }
+    else if(strncmp(arg, "on", 2)==0){
+    	server_config->paa_enabled = 1;
+    }
+    else{
+    	server_config->paa_enabled = -1;
+    }
+    return NULL;
+
+}
+
+static
 const command_rec paa_cmds[] = {
     AP_INIT_ITERATE("PaaPropertyFiles", set_property_files, NULL, RSRC_CONF,
             "A list of .properties files used to configure the module"),
     AP_INIT_TAKE1("PaaCertificateDir", set_cert_dir, NULL, RSRC_CONF,
             "A directory for certificate files extracted from .properties files"),
+    AP_INIT_TAKE1("PaaEnabled", set_paa_enabled, NULL, RSRC_CONF,
+            "An option whether or not to enable or disable the agent."),
     { NULL, { NULL }, NULL, 0, 0, NULL },
 };
 
