@@ -1,3 +1,6 @@
-.idea
-CMakeLists.txt
-lib
+.libs
+*.o
+*.slo
+*.la
+*.so
+*.lo
