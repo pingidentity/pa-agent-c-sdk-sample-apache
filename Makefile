@@ -1,6 +1,6 @@
 #
 # Makefile for building the PingAccess Agent SDK for C Sample
-# 
+#
 # This Makefile uses the apxs tool to build the Apache sample module, which
 # implicitly will use the gcc compiler.
 #
@@ -18,6 +18,7 @@ APACHE_INCLUDE_FLAGS := -I. -I$(PAA_SDK_INSTALL_DIR)/include
 
 APACHE_LIB_FLAGS := -L$(PAA_SDK_INSTALL_DIR)/lib/$(RHEL_PLATFORM)/x86_64/static \
    	-lpaa-cache-zmq \
+	-lpaa-cache-standalone \
 	-lpaa-config-filesystem \
 	-lpaa-http-client-curl \
 	-lpaa \
@@ -32,6 +33,6 @@ APACHE_SRC_FILES := mod_paa.c apache-http-server-facade.c
 	apxs -c $(APACHE_INCLUDE_FLAGS) $(APACHE_LIB_FLAGS) -o mod_paa.so $(APACHE_SRC_FILES)
 
 .PHONY: clean
-clean: 
+clean:
 	rm -f *.so *.o *.lo *.slo *.la
 	rm -rf .libs

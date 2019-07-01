@@ -22,14 +22,13 @@
  * @file mod_paa.c
  */
 
-#include <inttypes.h>
-
 #include "httpd.h"
 #include "http_config.h"
 #include "http_protocol.h"
 #include "http_request.h"
 #include "http_log.h"
 #include "ap_config.h"
+#include "ap_mpm.h"
 #include "apr_tables.h"
 #include "apr_time.h"
 #include "apr_strings.h"
@@ -41,12 +40,12 @@
 #include "paa-http-client-curl.h"
 #include "paa-config-filesystem.h"
 #include "paa-cache-zmq.h"
+#include "paa-cache-standalone.h"
 #include "paa.h"
 
 #include "apache-http-server-facade.h"
 
-#include <unistd.h>
-#include <libgen.h>
+#include "mod-paa-platform.h"
 
 /* Equivalent of ASCII "AP24" */
 #if (MODULE_MAGIC_COOKIE == 0x41503234UL)
@@ -72,15 +71,33 @@ static
 const char * const APACHE_TEST_CONNECTION = "agent.apache.test.connection";
 
 static
-const char * const APACHE_PAA_VERSION = "1.3.0";
+const char * const APACHE_PAA_VERSION = "1.4.0";
+
+static
+const char * const CACHE_TYPE_PROPERTY = "agent.cache.type";
+
+static
+const char * const AUTO_TYPE = "AUTO";
+
+static
+const char * const ZMQ_TYPE = "ZMQ";
+
+static
+const char * const STANDALONE_TYPE = "STANDALONE";
+
+static const int MAX_SERVERS_FOR_ZMQ_CACHE = 16;
+
+static
+const char * const PAA_ENABLE_NOTE = "paa-enable-note";
 
 // Globals
-module paa_module;
-
 // Enable per-module logging configuration, if available
 #ifdef APLOG_USE_MODULE
 APLOG_USE_MODULE(paa);
+#else
+extern module AP_DECLARE_DATA paa_module;
 #endif
+
 
 static 
 const paa_cache *cache = NULL;
@@ -101,6 +118,10 @@ static
 int paa_test_pa_connection = 1; // enabled by default
 
 // Data structures //
+typedef enum {
+	PAA_CACHE_ZMQ,
+	PAA_CACHE_STANDALONE
+} paa_cache_type_e;
 
 typedef
 struct paa_req_config_struct {
@@ -112,10 +133,18 @@ struct paa_server_config_struct {
     apr_array_header_t *properties_files;
     const char *cert_dir;
     const char *cert_path;
-    int paa_enabled;
     const paa_config *config;
     const paa_http_client *http_client;
+	paa_cache_type_e configured_cache_type;
+	const char *paa_enabled_note_name;
 } paa_server_config;
+
+/* This config will be created for the global config
+   and VirualHost cases. */
+typedef
+struct paa_dir_config_struct {
+    int paa_enabled;
+} paa_dir_config;
 
 // Prototypes //
 
@@ -154,6 +183,16 @@ paa_log_level apache_paa_get_log_level();
 
 void test_pingaccess_connection(const paa_http_client *client, apr_pool_t *parent_pool);
 
+apr_status_t validate_cache_config(paa_server_config *server_config, apr_pool_t *pool);
+
+static
+int parse_enable_note(const char *paa_enable_note);
+
+// Apache-specific library function implementations //
+
+static const char * const NORMAL_MSG_FORMAT = "[paa] %s";
+static const char * const MONITOR_MSG_FORMAT = "[paa-monitoring] %s";
+
 /**
  * The header_parser hook for the PAA module--essentially the "main" function for the module.
  *
@@ -185,14 +224,33 @@ int paa_header_parser(request_rec *r)
 
         paa_server_config *server_config = 
             (paa_server_config *)ap_get_module_config(r->server->module_config, &paa_module);
+
+		paa_dir_config *dir_config =
+			(paa_dir_config *)ap_get_module_config(r->per_dir_config, &paa_module);
+
         if (server_config == NULL) {
             paa_log(r->pool, APACHE_MSGID, PAA_ERROR, "failed to obtain PAA server configuration");
             hook_result = HTTP_INTERNAL_SERVER_ERROR;
             break;
         }
 
-        if(!server_config->paa_enabled){
-        	paa_log(r->pool, APACHE_MSGID, PAA_DEBUG, "agent not enabled.");
+        if (dir_config == NULL) {
+            paa_log(r->pool, APACHE_MSGID, PAA_ERROR, "failed to obtain PAA directory configuration");
+            hook_result = HTTP_INTERNAL_SERVER_ERROR;
+            break;
+        }
+
+		apr_table_t *notes = r->notes;
+		const char *paa_enable_note_value = apr_table_get(notes, server_config->paa_enabled_note_name);
+		int enable_note = -1;
+		if(paa_enable_note_value != NULL){
+			enable_note = parse_enable_note(paa_enable_note_value);
+		}
+
+		// In order to log the request context, paa_pa_log_rerror must be used.
+        if((enable_note == 0) || (enable_note == -1 && !dir_config->paa_enabled)){
+			paa_ap_log_rerror(__FILE__, __LINE__, APLOG_DEBUG, APR_SUCCESS, r,
+				   	NORMAL_MSG_FORMAT, "agent not enabled");
         	hook_result = OK;
             break;
         }
@@ -328,6 +386,18 @@ apr_status_t paa_set_response_headers(request_rec *r)
     return result;
 }
 
+static
+int parse_enable_note(const char *paa_enable_note)
+{
+	if (strcmp(paa_enable_note, "on") == 0) {
+		return 1;
+	}
+	if (strcmp(paa_enable_note, "off") == 0) {
+		return 0;
+	}
+	return -1;
+}
+
 apr_status_t paa_set_response_headers_filter(ap_filter_t *filter, apr_bucket_brigade *in)
 {
     apr_status_t result;
@@ -447,14 +517,23 @@ void paa_child_init(apr_pool_t *pool, server_rec *s)
 
         test_pingaccess_connection(server_config->http_client, pool);
 
-        result = paa_cache_zmq_create(pool,
-                server_config->config,
-                &cache);
-        if (result != APR_SUCCESS) {
-            paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
-                    "failed to initialize PAA policy cache");
-            break;
-        }
+		if (server_config->configured_cache_type == PAA_CACHE_ZMQ) {
+			result = paa_cache_zmq_create(pool,
+					server_config->config,
+					&cache);
+			paa_log(pool, APACHE_MSGID, PAA_INFO, "using caching mechanism ZMQ");
+		} else {
+			result = paa_cache_standalone_create(pool,
+					server_config->config,
+					&cache);
+			paa_log(pool, APACHE_MSGID, PAA_INFO, "using caching mechanism STANDALONE");
+		}
+		if (result != APR_SUCCESS) {
+			paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
+					"failed to initialize PAA policy cache");
+			break;
+		}
+
 
         // copy all global config to each virtual host
         server_rec *virt = s->next;
@@ -471,6 +550,7 @@ void paa_child_init(apr_pool_t *pool, server_rec *s)
                 virt_config->cert_dir = server_config->cert_dir;
                 virt_config->cert_path = server_config->cert_path;
                 virt_config->config = server_config->config;
+				virt_config->paa_enabled_note_name = server_config->paa_enabled_note_name;
                 // Don't set paa_enabled, this is a per-virtual host setting
             }
 
@@ -630,7 +710,7 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    const char **prop_files_array = apr_palloc(ptemp,
+    const char **prop_files_array = (const char **)apr_palloc(ptemp,
             sizeof(const char *)*server_config->properties_files->nelts);
     int i;
     for (i = 0; i < server_config->properties_files->nelts; ++i) {
@@ -649,6 +729,10 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
                 errmsg);
         return HTTP_INTERNAL_SERVER_ERROR;
     }
+
+	if (validate_cache_config(server_config, pool) != APR_SUCCESS) {
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
 
     result = paa_curl_create_cert_file(pool,
             server_config->config,
@@ -721,6 +805,49 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
     return OK;
 }
 
+apr_status_t validate_cache_config(paa_server_config *server_config, apr_pool_t *pool)
+{
+	const char *cache_type;
+	const char *errmsg;
+
+	cache_type = server_config->config->get_value(server_config->config, CACHE_TYPE_PROPERTY);
+	if (cache_type != NULL) {
+		if (strcmp(AUTO_TYPE, cache_type) != 0 &&
+			strcmp(ZMQ_TYPE, cache_type) != 0 &&
+			strcmp(STANDALONE_TYPE, cache_type) != 0)
+		{
+			errmsg = apr_psprintf(pool, "invalid %s value in PingAccess agent properties file, "
+				"must be one of %s, %s, or %s",
+				CACHE_TYPE_PROPERTY,
+				AUTO_TYPE,
+				ZMQ_TYPE,
+				STANDALONE_TYPE);
+			paa_log(pool, APACHE_MSGID, PAA_ERROR, errmsg);
+			return APR_EINVAL;
+		}
+	}
+
+	if (cache_type == NULL || strcmp(AUTO_TYPE, cache_type) == 0) {
+		int max_servers;
+		apr_status_t result;
+		result = ap_mpm_query(AP_MPMQ_MAX_DAEMONS, &max_servers);
+		if (result == APR_SUCCESS) {
+			server_config->configured_cache_type = max_servers > 1 && max_servers < MAX_SERVERS_FOR_ZMQ_CACHE ?
+			   	PAA_CACHE_ZMQ : PAA_CACHE_STANDALONE;
+		} else {
+			server_config->configured_cache_type = PAA_CACHE_ZMQ;
+			errmsg = apr_psprintf(pool, "unable to determine server limit, using ZMQ caching");
+			paa_log(pool, APACHE_MSGID, PAA_WARN, errmsg);
+		}
+	} else if (strcmp(ZMQ_TYPE, cache_type) == 0) {
+		server_config->configured_cache_type = PAA_CACHE_ZMQ;
+	} else {
+		server_config->configured_cache_type = PAA_CACHE_STANDALONE;
+	}
+
+	return APR_SUCCESS;
+}
+
 void paa_register_hooks(apr_pool_t *p)
 {
     USE(p);
@@ -745,31 +872,38 @@ void *paa_create_server_config(apr_pool_t *pool, server_rec *s)
 {
     USE(s);
 
-    paa_server_config *server_config = apr_pcalloc(pool, sizeof(paa_server_config));
+    paa_server_config *server_config =
+		(paa_server_config *)apr_pcalloc(pool, sizeof(paa_server_config));
     server_config->cert_dir = NULL;
-    server_config->paa_enabled = -1;
     server_config->config = NULL;
     server_config->properties_files = apr_array_make(pool, 3, sizeof(char *));
+	server_config->paa_enabled_note_name = PAA_ENABLE_NOTE;
 
     return server_config;
 }
 
 static
-void *paa_merge_server_config(apr_pool_t *p, void *base_conf, void *new_conf)
+void *paa_create_dir_config(apr_pool_t *pool, char *dir)
 {
+	USE(dir);
 
-	paa_server_config *base_server_config = (paa_server_config *)base_conf;
-    paa_server_config *new_server_config = (paa_server_config *)new_conf;
-    paa_server_config *server_config = apr_palloc(p, sizeof(paa_server_config));
+	paa_dir_config *dir_config = (paa_dir_config*) apr_pcalloc(pool, sizeof(paa_dir_config));
+	dir_config->paa_enabled = -1;
 
-	if(new_server_config->paa_enabled == -1){
-	    server_config->paa_enabled = base_server_config->paa_enabled;
-	}
-	else {
-		server_config->paa_enabled = new_server_config->paa_enabled;
-	}
+	return dir_config;
+}
 
-	return server_config;
+static
+void *paa_merge_dir_config(apr_pool_t *p, void *base_conf, void *new_conf)
+{
+	paa_dir_config *base_dir_config = (paa_dir_config *)base_conf;
+    paa_dir_config *new_dir_config = (paa_dir_config *)new_conf;
+    paa_dir_config *dir_config = (paa_dir_config *)paa_create_dir_config(p, "Merged configuration.");
+
+	dir_config->paa_enabled = (new_dir_config->paa_enabled == -1) ?
+		base_dir_config->paa_enabled : new_dir_config->paa_enabled;
+
+	return dir_config;
 }
 
 static
@@ -785,7 +919,7 @@ const char *set_property_files(cmd_parms *parms, void *unused, const char *arg)
 
     server_rec *s = parms->server;
     paa_server_config *server_config =
-        ap_get_module_config(s->module_config, &paa_module);
+        (paa_server_config *)ap_get_module_config(s->module_config, &paa_module);
 
     void *prop_file_path = apr_array_push(server_config->properties_files);
 
@@ -807,7 +941,7 @@ const char *set_cert_dir(cmd_parms *parms, void *unused, const char *arg)
 
     server_rec *s = parms->server;
     paa_server_config *server_config = 
-        ap_get_module_config(s->module_config, &paa_module);
+        (paa_server_config *)ap_get_module_config(s->module_config, &paa_module);
 
     // The value of the property can be relative or absolute and this function will resolve the
     // file accordingly
@@ -815,53 +949,75 @@ const char *set_cert_dir(cmd_parms *parms, void *unused, const char *arg)
 }
 
 static
-const char *set_paa_enabled(cmd_parms *parms, void *unused, const char *arg)
+const char *set_paa_enabled_note_name(cmd_parms *parms, void *unused, const char *arg)
 {
-    USE(unused);
+	USE(unused);
 
-    server_rec *s = parms->server;
-    paa_server_config *server_config = ap_get_module_config(s->module_config, &paa_module);
+	const char *errmsg = ap_check_cmd_context(parms, GLOBAL_ONLY);
+	if (errmsg != NULL) {
+		return errmsg;
+	}
 
-    if(strncmp(arg, "off", 3)==0){
-    	server_config->paa_enabled = 0;
-    }
-    else if(strncmp(arg, "on", 2)==0){
-    	server_config->paa_enabled = 1;
-    }
-    else{
-    	server_config->paa_enabled = -1;
-    }
+	server_rec *s = parms->server;
+	paa_server_config *server_config =
+		(paa_server_config *)ap_get_module_config(s->module_config, &paa_module);
+
+	server_config->paa_enabled_note_name = arg;
+
+	return NULL;
+}
+
+static
+const char *set_paa_enabled(cmd_parms *parms, void *dir_conf, const char *arg)
+{
+	USE(parms);
+	paa_dir_config *dir_config = (paa_dir_config *) dir_conf;
+
+	if(dir_config)
+	{
+		if(strncmp(arg, "off", 3)==0)
+		{
+			dir_config->paa_enabled = 0;
+		}
+		else if(strncmp(arg, "on", 2)==0)
+		{
+			dir_config->paa_enabled = 1;
+		}
+		else
+		{
+			dir_config->paa_enabled = -1;
+		}
+	}
+
     return NULL;
 
 }
 
 static
 const command_rec paa_cmds[] = {
-    AP_INIT_ITERATE("PaaPropertyFiles", set_property_files, NULL, RSRC_CONF,
+    AP_INIT_ITERATE("PaaPropertyFiles", CMD_FUNC(set_property_files), NULL, RSRC_CONF,
             "A list of .properties files used to configure the module"),
-    AP_INIT_TAKE1("PaaCertificateDir", set_cert_dir, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("PaaCertificateDir", CMD_FUNC(set_cert_dir), NULL, RSRC_CONF,
             "A directory for certificate files extracted from .properties files"),
-    AP_INIT_TAKE1("PaaEnabled", set_paa_enabled, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("PaaEnabled", CMD_FUNC(set_paa_enabled), NULL, RSRC_CONF | ACCESS_CONF,
             "An option whether or not to enable or disable the agent."),
-    { NULL, { NULL }, NULL, 0, 0, NULL },
+    AP_INIT_TAKE1("PaaEnabledNoteName", CMD_FUNC(set_paa_enabled_note_name), NULL, RSRC_CONF,
+            "The name of the note field used to enable or disable the agent dynamically."),
+    { NULL, { NULL }, NULL, 0, (enum cmd_how)0, NULL },
 };
 
 /* Dispatch list for API hooks */
 module AP_MODULE_DECLARE_DATA paa_module = {
     STANDARD20_MODULE_STUFF,
-    NULL,                                       /* create per-dir    config structures */
-    NULL,                                       /* merge  per-dir    config structures */
+    paa_create_dir_config,                      /* create per-dir    config structures */
+    paa_merge_dir_config,                       /* merge  per-dir    config structures */
     paa_create_server_config,                   /* create per-server config structures */
-    paa_merge_server_config,                    /* merge  per-server config structures */
+    NULL,                                       /* merge  per-server config structures */
     paa_cmds,                                   /* table of config file commands       */
     paa_register_hooks                          /* register hooks                      */
 }
 ;
 
-// Apache-specific library function implementations //
-
-static const char * const NORMAL_MSG_FORMAT = "[paa] %s";
-static const char * const MONITOR_MSG_FORMAT = "[paa-monitoring] %s";
 
 void apache_paa_log_msg(const char *file,
         int line,

@@ -28,7 +28,7 @@ and a [valid license](https://developer.pingidentity.com/en/connect.html)
 
 The sample requires the installation of some build-time dependencies. Some
 dependencies are available from the RHEL repositories, but a few are shipped
-in ${PAA_SDK_INSTALL_DIR}/lib/${platform}/dependencies directory of the Agent SDK for C installation.
+in `${PAA_SDK_INSTALL_DIR}/lib/${platform}/dependencies` directory of the Agent SDK for C installation.
 
 Run the following yum command as root to install all the dependencies:
 
@@ -41,6 +41,12 @@ For RHEL6, run the following yum command as root to install the provided depende
 For RHEL7, run the following yum command as root to install the provided dependencies:
 
     yum install ${PAA_SDK_INSTALL_DIR}/lib/rhel7/x86_64/dependencies/*.rpm
+
+To support linking against ZeroMQ 4 without requiring the zeromq-devel package (which
+conflicts with a zeromq package available from the EPEL repositories), manually add
+the following link as root:
+
+    ln -s /usr/lib64/libzmq.so.5 /usr/lib64/libzmq.so
 
 ## Building the Apache Agent Sample ##
 
@@ -82,10 +88,8 @@ PingAccess Policy Server.
 - The latest version of the PingAccess Agent SDK for C can be downloaded [here](https://www.pingidentity.com/en/products/downloads/pingaccess.html) (login required).
 - The most recent version of this sample application and project may be found at [github](https://github.com/pingidentity/pa-agent-c-sdk-sample-apache).
 - Customers and Partners may create cases via the [Ping Identity Support and Community Portal](https://ping.force.com/Support/Case_Create_Public).
-- API Documentation for the PingAccess Agent SDK for C is hosted at the [Ping Identity Developer Portal](https://developer.pingidentity.com/content/dam/developer/documentation/pingaccess/agent-c-sdk/latest)
+- API Documentation for the PingAccess Agent SDK for C is hosted at the [Ping Identity Developer Portal](https://www.pingidentity.com/content/developer/en/explore.html)
 - Additional Documentation for PingAccess Agent SDK for C can be found in the [Knowledge Center](https://docs.pingidentity.com/bundle/pa_sm_agentSDKC)
-- For developers using Java technologies, there is also a PingAccess Agent Sample application for Java, also hosted at github (link TBD)
-- If you require integration with PingAccess via a different technology, we have published the protocol interaction with the engine as the PingAccess Agent Protocol specification (TBP), which is hosted at the Ping Identity Developer Portal (login required).
 
 ## Disclaimer ##
 This software is open sourced by Ping Identity but not supported commercially as such. Any questions/issues
