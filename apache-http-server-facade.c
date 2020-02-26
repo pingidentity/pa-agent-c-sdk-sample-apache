@@ -1,20 +1,19 @@
-/*
- * ***************************************************
- *  Copyright (C) 2016 Ping Identity Corporation
- *  All rights reserved.
+/*****************************************************
+ * Copyright (C) 2020 Ping Identity Corporation
+ * All rights reserved.
  *
- *  The contents of this file are the property of Ping Identity Corporation.
- *  You may not copy or use this file, in either source code or executable
- *  form, except in compliance with terms set by Ping Identity Corporation.
- *  For further information please contact:
+ * The contents of this file are the property of Ping Identity Corporation.
+ * You may not copy or use this file, in either source code or executable
+ * form, except in compliance with terms set by Ping Identity Corporation.
+ * For further information please contact:
  *
- *  Ping Identity Corporation
- *  1099 18th St Suite 2950
- *  Denver, CO 80202
- *  303.468.2900
- *  http://www.pingidentity.com
- * *****************************************************
- */
+ * Ping Identity Corporation
+ * 1001 17th St Suite 100
+ * Denver, CO 80202
+ * 303.468.2900
+ * https://www.pingidentity.com
+ *
+ ****************************************************/
 
 /**
  * PAA HTTP server facade implementation for Apache

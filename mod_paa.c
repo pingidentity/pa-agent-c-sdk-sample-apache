@@ -1,20 +1,19 @@
-/*
- * ***************************************************
- *  Copyright (C) 2016 Ping Identity Corporation
- *  All rights reserved.
+/*****************************************************
+ * Copyright (C) 2020 Ping Identity Corporation
+ * All rights reserved.
  *
- *  The contents of this file are the property of Ping Identity Corporation.
- *  You may not copy or use this file, in either source code or executable
- *  form, except in compliance with terms set by Ping Identity Corporation.
- *  For further information please contact:
+ * The contents of this file are the property of Ping Identity Corporation.
+ * You may not copy or use this file, in either source code or executable
+ * form, except in compliance with terms set by Ping Identity Corporation.
+ * For further information please contact:
  *
- *  Ping Identity Corporation
- *  1099 18th St Suite 2950
- *  Denver, CO 80202
- *  303.468.2900
- *  http://www.pingidentity.com
- * *****************************************************
- */
+ * Ping Identity Corporation
+ * 1001 17th St Suite 100
+ * Denver, CO 80202
+ * 303.468.2900
+ * https://www.pingidentity.com
+ *
+ ****************************************************/
 
 /**
  * PAA Apache module
@@ -71,7 +70,7 @@ static
 const char * const APACHE_TEST_CONNECTION = "agent.apache.test.connection";
 
 static
-const char * const APACHE_PAA_VERSION = "1.4.0";
+const char * const APACHE_PAA_VERSION = "1.4.1";
 
 static
 const char * const CACHE_TYPE_PROPERTY = "agent.cache.type";
@@ -284,13 +283,15 @@ int paa_header_parser(request_rec *r)
         }
 
         // create the normalized uri and store it for later use
-        req_wrapper.full_normalized_uri = apr_psprintf(r->pool, "%s", r->parsed_uri.path);
-        if (req_wrapper.full_normalized_uri == NULL) {
+		char *normalized_uri = apr_psprintf(r->pool, "%s", r->parsed_uri.path);
+		if (normalized_uri == NULL) {
             paa_log_error(r->pool, APACHE_MSGID, PAA_ERROR, APR_ENOMEM,
                     "failed to create normalized uri");
             hook_result = HTTP_INTERNAL_SERVER_ERROR;
             break;
-        }
+		}
+		ap_no2slash(normalized_uri);
+        req_wrapper.full_normalized_uri = normalized_uri;
 
         const paa_agent_response *agent_resp = NULL;
         result = paa_submit_agent_request(r->pool,

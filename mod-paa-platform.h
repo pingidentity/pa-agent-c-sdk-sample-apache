@@ -1,5 +1,5 @@
 /*****************************************************
- * Copyright (C) 2019 Ping Identity Corporation
+ * Copyright (C) 2020 Ping Identity Corporation
  * All rights reserved.
  *
  * The contents of this file are the property of Ping Identity Corporation.
@@ -11,7 +11,7 @@
  * 1001 17th St Suite 100
  * Denver, CO 80202
  * 303.468.2900
- * http://www.pingidentity.com
+ * https://www.pingidentity.com
  *
  ****************************************************/
 
