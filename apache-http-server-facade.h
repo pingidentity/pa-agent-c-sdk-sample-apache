@@ -1,4 +1,4 @@
-/*****************************************************
+/*
  * Copyright (C) 2020 Ping Identity Corporation
  * All rights reserved.
  *
@@ -12,8 +12,7 @@
  * Denver, CO 80202
  * 303.468.2900
  * https://www.pingidentity.com
- *
- ****************************************************/
+ */
 
 /**
  * Header for Apache implementation of the paa_client_request and 

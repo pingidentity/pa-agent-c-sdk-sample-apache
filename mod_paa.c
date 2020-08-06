@@ -1,4 +1,4 @@
-/*****************************************************
+/*
  * Copyright (C) 2020 Ping Identity Corporation
  * All rights reserved.
  *
@@ -12,8 +12,7 @@
  * Denver, CO 80202
  * 303.468.2900
  * https://www.pingidentity.com
- *
- ****************************************************/
+ */
 
 /**
  * PAA Apache module
@@ -70,7 +69,7 @@ static
 const char * const APACHE_TEST_CONNECTION = "agent.apache.test.connection";
 
 static
-const char * const APACHE_PAA_VERSION = "1.4.1";
+const char * const APACHE_PAA_VERSION = "1.5.0";
 
 static
 const char * const CACHE_TYPE_PROPERTY = "agent.cache.type";
@@ -88,6 +87,23 @@ static const int MAX_SERVERS_FOR_ZMQ_CACHE = 16;
 
 static
 const char * const PAA_ENABLE_NOTE = "paa-enable-note";
+
+static
+const char * const AGENT_INVENTORY_PROPERTY = "agent.inventory";
+
+static
+const char * const AGENT_SEND_INVENTORY_PROPERTY = "agent.send.inventory";
+
+static const int INITIAL_INVENTORY_SIZE = 3;
+
+static
+const char * const INVENTORY_VERSION = "v";
+
+static
+const char * const INVENTORY_TYPE = "t";
+
+static
+const char * const INVENTORY_HOSTNAME = "h";
 
 // Globals
 // Enable per-module logging configuration, if available
@@ -115,6 +131,9 @@ int paa_apache_monitoring_disabled = 0; // enabled by default
 
 static
 int paa_test_pa_connection = 1; // enabled by default
+
+static
+apr_table_t *agent_inventory = NULL;
 
 // Data structures //
 typedef enum {
@@ -186,6 +205,15 @@ apr_status_t validate_cache_config(paa_server_config *server_config, apr_pool_t 
 
 static
 int parse_enable_note(const char *paa_enable_note);
+
+static
+apr_table_t *configure_agent_inventory(const paa_config *config,
+                                       apr_pool_t *pool,
+                                       const char *hostname);
+
+static
+apr_table_t *apache_paa_inventory_cb(const paa_config *config,
+                                     const paa_client_request *req);
 
 // Apache-specific library function implementations //
 
@@ -484,7 +512,6 @@ void noop_threadkey_free(void *unused)
 
 void paa_child_init(apr_pool_t *pool, server_rec *s)
 {
-
 	set_global_log_handle(pool, s);
 
     apr_status_t result;
@@ -766,6 +793,13 @@ int paa_post_config(apr_pool_t *pool, apr_pool_t *plog, apr_pool_t *ptemp, serve
         }
     }
 
+	agent_inventory = configure_agent_inventory(server_config->config, pool, s->server_hostname);
+	if (agent_inventory == NULL || !paa_validate_inventory(pool, agent_inventory)) {
+		paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
+			          "invalid agent inventory value");
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
+
     const char *test_connection = server_config->config->get_value(server_config->config,
             APACHE_TEST_CONNECTION);
     if (test_connection != NULL) {
@@ -854,6 +888,7 @@ void paa_register_hooks(apr_pool_t *p)
     USE(p);
 
     paa_set_log_functions(apache_paa_log_msg, apache_paa_get_log_level);
+	paa_set_inventory_cb(apache_paa_inventory_cb);
 
     // Register filters
     ap_register_output_filter(SET_RESPONSE_HEADERS_FILTER, paa_set_response_headers_filter,
@@ -1016,6 +1051,9 @@ module AP_MODULE_DECLARE_DATA paa_module = {
     NULL,                                       /* merge  per-server config structures */
     paa_cmds,                                   /* table of config file commands       */
     paa_register_hooks                          /* register hooks                      */
+	#if defined(AP_MODULE_FLAG_NONE)
+		,AP_MODULE_FLAG_NONE
+	#endif
 }
 ;
 
@@ -1199,4 +1237,54 @@ int paa_get_log_level_from_server_rec(server_rec *srec) {
     #endif
 
     return loglevel;
+}
+
+apr_table_t *apache_paa_inventory_cb(const paa_config *config,
+                                     const paa_client_request *req)
+{
+	USE(config);
+	USE(req);
+
+	return agent_inventory;
+}
+
+static
+apr_table_t *configure_agent_inventory(const paa_config *config,
+                                       apr_pool_t *pool,
+									   const char *hostname)
+{
+    apr_table_t *inventory;
+    inventory = apr_table_make(pool, INITIAL_INVENTORY_SIZE);
+
+	if (inventory == NULL) {
+		return NULL;
+	}
+
+	const char *send_inventory = config->get_value(config, AGENT_SEND_INVENTORY_PROPERTY);
+	if (send_inventory != NULL && strcmp(send_inventory, "false") == 0) {
+		return inventory;
+	}
+
+	const char *type = ap_get_server_description();
+	const char *version = APACHE_PAA_VERSION;
+
+	apr_table_set(inventory, INVENTORY_VERSION, version);
+	apr_table_set(inventory, INVENTORY_TYPE, type);
+	apr_table_set(inventory, INVENTORY_HOSTNAME, hostname);
+
+	const char * custom_values = config->get_value(config, AGENT_INVENTORY_PROPERTY);
+
+	if (custom_values != NULL && *custom_values != '\0') {
+		apr_table_t *custom_inventory = NULL;
+		apr_status_t result = paa_util_parse_header_map(custom_values, pool, &custom_inventory);
+		if (result == APR_SUCCESS) {
+			apr_table_overlap(inventory, custom_inventory, APR_OVERLAP_TABLES_SET);
+		} else {
+			paa_log_error(pool, APACHE_MSGID, PAA_ERROR, result,
+					"failed to set agent inventory values");
+			return NULL;
+		}
+	}
+
+	return inventory;
 }

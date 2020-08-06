@@ -12,7 +12,7 @@ mod_paa.so: .libs/mod_paa.so
 
 PAA_SDK_INSTALL_DIR := ..
 
-RHEL_PLATFORM = $(shell if [ -z "`cat /etc/redhat-release | grep 'release 6'`" ]; then echo rhel7; else echo rhel6; fi)
+RHEL_PLATFORM = $(shell if [ -z "`cat /etc/redhat-release | grep 'release 8'`" ]; then echo rhel7; else echo rhel8; fi)
 
 APACHE_INCLUDE_FLAGS := -I. -I$(PAA_SDK_INSTALL_DIR)/include
 
